@@ -35,6 +35,16 @@ pub fn derive(input: TokenStream) -> TokenStream {
             #name: None
         }
     });
+    let builder_struct_impl = struct_fields.iter().map(|f| {
+        let name = &f.ident;
+        let ty = &f.ty;
+        quote_spanned! {f.span() =>
+            fn #name(&mut self, #name: #ty) -> &mut Self {
+                self.#name = Some(#name);
+                self
+            }
+        }
+    });
 
     let struct_impl = quote! {
         impl #struct_name {
@@ -51,9 +61,16 @@ pub fn derive(input: TokenStream) -> TokenStream {
             #(#builder_struct_fields),*
         }
     };
+
+    let builder_impl = quote! {
+        impl #builder_name {
+            #(#builder_struct_impl)*
+        }
+    };
     quote! {
         #struct_impl
         #builder_struct
+        #builder_impl
     }
     .into()
 }
