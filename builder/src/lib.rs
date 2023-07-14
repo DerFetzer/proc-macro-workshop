@@ -45,6 +45,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
             }
         }
     });
+    let builder_struct_build_set_fields = struct_fields.iter().map(|f| {
+        let name = &f.ident;
+        quote_spanned! {f.span() =>
+            #name: self.#name.take().ok_or(::std::boxed::Box::<dyn ::std::error::Error>::from("name is not set!".to_string()))?,
+        }
+    });
 
     let struct_impl = quote! {
         impl #struct_name {
@@ -65,6 +71,14 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let builder_impl = quote! {
         impl #builder_name {
             #(#builder_struct_impl)*
+
+            pub fn build(&mut self) -> ::std::result::Result<#struct_name, ::std::boxed::Box<dyn ::std::error::Error>> {
+                Ok(
+                    #struct_name{
+                        #(#builder_struct_build_set_fields)*
+                    }
+                )
+            }
         }
     };
     quote! {
