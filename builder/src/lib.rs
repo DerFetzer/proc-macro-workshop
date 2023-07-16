@@ -1,13 +1,16 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{quote, quote_spanned};
-use syn::{parse_macro_input, spanned::Spanned, Data, DeriveInput, Fields, Ident};
+use syn::{
+    parse_macro_input, spanned::Spanned, Data, DeriveInput, Fields, GenericArgument, Ident,
+    PathArguments, Type,
+};
 
-#[proc_macro_derive(Builder)]
+#[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: TokenStream) -> TokenStream {
     // eprintln!("Input: {:#?}", input);
     let input = parse_macro_input!(input as DeriveInput);
-    eprintln!("Parsed input: {:#?}", input);
+    // eprintln!("Parsed input: {:#?}", input);
 
     let struct_name = input.ident;
     let builder_name = Ident::new(&format!("{}Builder", struct_name), Span::call_site());
@@ -24,7 +27,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let builder_struct_fields = struct_fields.iter().map(|f| {
         let name = &f.ident;
-        let ty = &f.ty;
+        let ty = get_type_from_option(&f.ty).unwrap_or(&f.ty);
         quote_spanned! {f.span() =>
             #name: Option<#ty>
         }
@@ -37,7 +40,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
     let builder_struct_impl = struct_fields.iter().map(|f| {
         let name = &f.ident;
-        let ty = &f.ty;
+        let ty = get_type_from_option(&f.ty).unwrap_or(&f.ty);
         quote_spanned! {f.span() =>
             fn #name(&mut self, #name: #ty) -> &mut Self {
                 self.#name = Some(#name);
@@ -47,8 +50,17 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
     let builder_struct_build_set_fields = struct_fields.iter().map(|f| {
         let name = &f.ident;
-        quote_spanned! {f.span() =>
-            #name: self.#name.take().ok_or(::std::boxed::Box::<dyn ::std::error::Error>::from("name is not set!".to_string()))?,
+        let error_msg = format!("{} is not set!", name.clone().unwrap());
+        let ty = get_type_from_option(&f.ty);
+        if ty.is_some() {
+            quote_spanned! {f.span() =>
+                #name: self.#name.take(),
+            }
+        }
+        else {
+            quote_spanned! {f.span() =>
+                #name: self.#name.take().ok_or(::std::boxed::Box::<dyn ::std::error::Error>::from(#error_msg))?,
+            }
         }
     });
 
@@ -87,4 +99,25 @@ pub fn derive(input: TokenStream) -> TokenStream {
         #builder_impl
     }
     .into()
+}
+
+fn get_type_from_option(ty: &Type) -> Option<&Type> {
+    if let Type::Path(path_ty) = ty {
+        match path_ty.path.segments.last()? {
+            segment if segment.ident == "Option" => {
+                if let PathArguments::AngleBracketed(arg) = &segment.arguments {
+                    if let GenericArgument::Type(ty) = arg.args.first()? {
+                        Some(ty)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
