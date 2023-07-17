@@ -2,15 +2,15 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{quote, quote_spanned};
 use syn::{
-    parse_macro_input, spanned::Spanned, Data, DeriveInput, Fields, GenericArgument, Ident,
-    PathArguments, Type,
+    parse_macro_input, spanned::Spanned, Attribute, Data, DeriveInput, Expr, Fields,
+    GenericArgument, Ident, Lit, PathArguments, Type,
 };
 
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: TokenStream) -> TokenStream {
     // eprintln!("Input: {:#?}", input);
     let input = parse_macro_input!(input as DeriveInput);
-    // eprintln!("Parsed input: {:#?}", input);
+    eprintln!("Parsed input: {:#?}", input);
 
     let struct_name = input.ident;
     let builder_name = Ident::new(&format!("{}Builder", struct_name), Span::call_site());
@@ -27,7 +27,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let builder_struct_fields = struct_fields.iter().map(|f| {
         let name = &f.ident;
-        let ty = get_type_from_option(&f.ty).unwrap_or(&f.ty);
+        let ty = get_generic_type(&f.ty, "Option").unwrap_or(&f.ty);
         quote_spanned! {f.span() =>
             #name: Option<#ty>
         }
@@ -40,21 +40,41 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
     let builder_struct_impl = struct_fields.iter().map(|f| {
         let name = &f.ident;
-        let ty = get_type_from_option(&f.ty).unwrap_or(&f.ty);
-        quote_spanned! {f.span() =>
+        let ty = get_generic_type(&f.ty, "Option").unwrap_or(&f.ty);
+        let setter = quote_spanned! {f.span() =>
             fn #name(&mut self, #name: #ty) -> &mut Self {
                 self.#name = Some(#name);
                 self
             }
+        };
+        match get_each_builder_attribute(&f.attrs) {
+            Some(each) if Some(each.clone()) != name.clone().map(|n| n.to_string()) => {
+                let each_ident = Ident::new(&each, Span::call_site());
+                let each_ty = get_generic_type(&f.ty, "Vec");
+                quote_spanned! {f.span() =>
+                    #setter
+
+                    fn #each_ident(&mut self, #each_ident: #each_ty) -> &mut Self {
+                        self.#name.get_or_insert(::std::vec::Vec::new()).push(#each_ident);
+                        self
+                    }
+                }
+            }
+            _ => setter,
         }
     });
     let builder_struct_build_set_fields = struct_fields.iter().map(|f| {
         let name = &f.ident;
         let error_msg = format!("{} is not set!", name.clone().unwrap());
-        let ty = get_type_from_option(&f.ty);
+        let ty = get_generic_type(&f.ty, "Option");
         if ty.is_some() {
             quote_spanned! {f.span() =>
                 #name: self.#name.take(),
+            }
+        }
+        else if get_each_builder_attribute(&f.attrs).is_some() {
+            quote_spanned! {f.span() =>
+                #name: self.#name.take().unwrap_or_default(),
             }
         }
         else {
@@ -101,10 +121,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
     .into()
 }
 
-fn get_type_from_option(ty: &Type) -> Option<&Type> {
+fn get_generic_type<'a>(ty: &'a Type, ty_ident: &'_ str) -> Option<&'a Type> {
     if let Type::Path(path_ty) = ty {
         match path_ty.path.segments.last()? {
-            segment if segment.ident == "Option" => {
+            segment if segment.ident == ty_ident => {
                 if let PathArguments::AngleBracketed(arg) = &segment.arguments {
                     if let GenericArgument::Type(ty) = arg.args.first()? {
                         Some(ty)
@@ -119,5 +139,28 @@ fn get_type_from_option(ty: &Type) -> Option<&Type> {
         }
     } else {
         None
+    }
+}
+
+fn get_each_builder_attribute(attrs: &[Attribute]) -> Option<String> {
+    let builder_attr = attrs.iter().find(|a| a.path().is_ident("builder"))?;
+    let args: Expr = builder_attr
+        .parse_args()
+        .expect("Invalid syntax for builder attribute!");
+    if let Expr::Assign(assign) = args {
+        if let (Expr::Path(each), Expr::Lit(expr_lit)) = (*assign.left, *assign.right) {
+            if !each.path.is_ident("each") {
+                unimplemented!()
+            }
+            if let Lit::Str(lit_str) = expr_lit.lit {
+                Some(lit_str.value())
+            } else {
+                unimplemented!()
+            }
+        } else {
+            unimplemented!()
+        }
+    } else {
+        unimplemented!()
     }
 }
