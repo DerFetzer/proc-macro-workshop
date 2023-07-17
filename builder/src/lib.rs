@@ -29,13 +29,13 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let name = &f.ident;
         let ty = get_generic_type(&f.ty, "Option").unwrap_or(&f.ty);
         quote_spanned! {f.span() =>
-            #name: Option<#ty>
+            #name: ::std::option::Option<#ty>
         }
     });
     let builder_struct_init_fields = struct_fields.iter().map(|f| {
         let name = &f.ident;
         quote_spanned! {f.span() =>
-            #name: None
+            #name: ::std::option::Option::None
         }
     });
     let builder_struct_impl = struct_fields.iter().map(|f| {
@@ -43,7 +43,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let ty = get_generic_type(&f.ty, "Option").unwrap_or(&f.ty);
         let setter = quote_spanned! {f.span() =>
             fn #name(&mut self, #name: #ty) -> &mut Self {
-                self.#name = Some(#name);
+                self.#name = ::std::option::Option::Some(#name);
                 self
             }
         };
