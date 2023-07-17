@@ -10,7 +10,7 @@ use syn::{
 pub fn derive(input: TokenStream) -> TokenStream {
     // eprintln!("Input: {:#?}", input);
     let input = parse_macro_input!(input as DeriveInput);
-    eprintln!("Parsed input: {:#?}", input);
+    // eprintln!("Parsed input: {:#?}", input);
 
     let struct_name = input.ident;
     let builder_name = Ident::new(&format!("{}Builder", struct_name), Span::call_site());
@@ -48,7 +48,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             }
         };
         match get_each_builder_attribute(&f.attrs) {
-            Some(each) if Some(each.clone()) != name.clone().map(|n| n.to_string()) => {
+            Ok(Some(each)) if Some(each.clone()) != name.clone().map(|n| n.to_string()) => {
                 let each_ident = Ident::new(&each, Span::call_site());
                 let each_ty = get_generic_type(&f.ty, "Vec");
                 quote_spanned! {f.span() =>
@@ -60,6 +60,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     }
                 }
             }
+            Err(e) => e.into_compile_error(),
             _ => setter,
         }
     });
@@ -72,7 +73,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 #name: self.#name.take(),
             }
         }
-        else if get_each_builder_attribute(&f.attrs).is_some() {
+        else if let Ok(Some(_)) = get_each_builder_attribute(&f.attrs) {
             quote_spanned! {f.span() =>
                 #name: self.#name.take().unwrap_or_default(),
             }
@@ -142,18 +143,26 @@ fn get_generic_type<'a>(ty: &'a Type, ty_ident: &'_ str) -> Option<&'a Type> {
     }
 }
 
-fn get_each_builder_attribute(attrs: &[Attribute]) -> Option<String> {
-    let builder_attr = attrs.iter().find(|a| a.path().is_ident("builder"))?;
+fn get_each_builder_attribute(attrs: &[Attribute]) -> Result<Option<String>, syn::Error> {
+    let builder_attr = attrs.iter().find(|a| a.path().is_ident("builder"));
+    let builder_attr = if let Some(builder_attr) = builder_attr {
+        builder_attr
+    } else {
+        return Ok(None);
+    };
     let args: Expr = builder_attr
         .parse_args()
         .expect("Invalid syntax for builder attribute!");
     if let Expr::Assign(assign) = args {
         if let (Expr::Path(each), Expr::Lit(expr_lit)) = (*assign.left, *assign.right) {
             if !each.path.is_ident("each") {
-                unimplemented!()
+                return Err(syn::Error::new_spanned(
+                    builder_attr.meta.clone(),
+                    "expected `builder(each = \"...\")`",
+                ));
             }
             if let Lit::Str(lit_str) = expr_lit.lit {
-                Some(lit_str.value())
+                Ok(Some(lit_str.value()))
             } else {
                 unimplemented!()
             }
