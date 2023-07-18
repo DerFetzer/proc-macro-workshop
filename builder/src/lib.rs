@@ -48,7 +48,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             }
         };
         match get_each_builder_attribute(&f.attrs) {
-            Ok(Some(each)) if Some(each.clone()) != name.clone().map(|n| n.to_string()) => {
+            Ok(Some(each)) if each != name.as_ref().map(|n| n.to_string()).unwrap_or_default() => {
                 let each_ident = Ident::new(&each, Span::call_site());
                 let each_ty = get_generic_type(&f.ty, "Vec");
                 quote_spanned! {f.span() =>
@@ -66,7 +66,6 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
     let builder_struct_build_set_fields = struct_fields.iter().map(|f| {
         let name = &f.ident;
-        let error_msg = format!("{} is not set!", name.clone().unwrap());
         let ty = get_generic_type(&f.ty, "Option");
         if ty.is_some() {
             quote_spanned! {f.span() =>
@@ -79,6 +78,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             }
         }
         else {
+            let error_msg = format!("{} is not set!", name.as_ref().map(|n| n.to_string()).unwrap());
             quote_spanned! {f.span() =>
                 #name: self.#name.take().ok_or(::std::boxed::Box::<dyn ::std::error::Error>::from(#error_msg))?,
             }
@@ -157,7 +157,7 @@ fn get_each_builder_attribute(attrs: &[Attribute]) -> Result<Option<String>, syn
         if let (Expr::Path(each), Expr::Lit(expr_lit)) = (*assign.left, *assign.right) {
             if !each.path.is_ident("each") {
                 return Err(syn::Error::new_spanned(
-                    builder_attr.meta.clone(),
+                    &builder_attr.meta,
                     "expected `builder(each = \"...\")`",
                 ));
             }
