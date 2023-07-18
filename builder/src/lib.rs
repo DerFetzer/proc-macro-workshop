@@ -42,7 +42,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let name = &f.ident;
         let ty = get_generic_type(&f.ty, "Option").unwrap_or(&f.ty);
         let setter = quote_spanned! {f.span() =>
-            fn #name(&mut self, #name: #ty) -> &mut Self {
+            pub fn #name(&mut self, #name: #ty) -> &mut Self {
                 self.#name = ::std::option::Option::Some(#name);
                 self
             }
@@ -54,7 +54,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 quote_spanned! {f.span() =>
                     #setter
 
-                    fn #each_ident(&mut self, #each_ident: #each_ty) -> &mut Self {
+                    pub fn #each_ident(&mut self, #each_ident: #each_ty) -> &mut Self {
                         self.#name.get_or_insert(::std::vec::Vec::new()).push(#each_ident);
                         self
                     }
