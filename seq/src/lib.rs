@@ -8,6 +8,7 @@ struct Seq {
     counter_ident: Ident,
     lit_from: LitInt,
     lit_to: LitInt,
+    inclusive: bool,
     content: proc_macro2::TokenStream,
 }
 
@@ -16,7 +17,13 @@ impl Parse for Seq {
         let counter_ident = input.parse()?;
         input.parse::<Token![in]>()?;
         let lit_from = input.parse()?;
-        input.parse::<Token![..]>()?;
+        let inclusive = if input.peek(Token![..=]) {
+            input.parse::<Token![..=]>()?;
+            true
+        } else {
+            input.parse::<Token![..]>()?;
+            false
+        };
         let lit_to = input.parse()?;
 
         let content;
@@ -27,6 +34,7 @@ impl Parse for Seq {
             counter_ident,
             lit_from,
             lit_to,
+            inclusive,
             content,
         })
     }
@@ -42,16 +50,22 @@ pub fn seq(input: TokenStream) -> TokenStream {
     let from = input.lit_from.base10_parse::<usize>().unwrap();
     let to = input.lit_to.base10_parse::<usize>().unwrap();
 
+    let range = if input.inclusive {
+        from..to + 1
+    } else {
+        from..to
+    };
+
     // eprintln!("{from} {to}");
 
     if has_repetition_delimiter(input.content.clone().into()) {
         output.extend(repeat_sections(
             &input.counter_ident,
-            from..to,
+            range,
             input.content.into(),
         ))
     } else {
-        for i in from..to {
+        for i in range {
             let current_stream = replace_ident(
                 &input.counter_ident.clone(),
                 i,
