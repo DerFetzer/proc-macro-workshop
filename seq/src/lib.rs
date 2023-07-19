@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use proc_macro::{Delimiter, Group, Literal, Span, TokenStream, TokenTree};
 use syn::{braced, parse::Parse, parse_macro_input, Ident, LitInt, Token};
 
@@ -43,6 +45,11 @@ pub fn seq(input: TokenStream) -> TokenStream {
     // eprintln!("{from} {to}");
 
     if has_repetition_delimiter(input.content.clone().into()) {
+        output.extend(repeat_sections(
+            &input.counter_ident,
+            from..to,
+            input.content.into(),
+        ))
     } else {
         for i in from..to {
             let current_stream = replace_ident(
@@ -56,6 +63,7 @@ pub fn seq(input: TokenStream) -> TokenStream {
     }
 
     // eprintln!("Output: {output:#?}");
+    eprintln!("Output: {}", output);
     output
 }
 
@@ -80,6 +88,42 @@ fn has_repetition_delimiter(stream: TokenStream) -> bool {
         }
     }
     false
+}
+
+fn repeat_sections(ident: &Ident, range: Range<usize>, content: TokenStream) -> TokenStream {
+    let content_tokens: Vec<_> = Vec::from_iter(content);
+    let mut replaced_tokens = Vec::with_capacity(content_tokens.len());
+
+    let mut i = 0;
+    while i < content_tokens.len() {
+        let replaced_token = match &content_tokens[i..] {
+            [TokenTree::Punct(pound), TokenTree::Group(group), TokenTree::Punct(asterisk)]
+                if pound.as_char() == '#'
+                    && asterisk.as_char() == '*'
+                    && group.delimiter() == Delimiter::Parenthesis =>
+            {
+                i += 2;
+                TokenTree::Group(Group::new(
+                    Delimiter::None,
+                    TokenStream::from_iter(
+                        range
+                            .clone()
+                            .map(|i| replace_ident(ident, i, group.stream())),
+                    ),
+                ))
+            }
+            [TokenTree::Group(group), ..] => TokenTree::Group(Group::new(
+                group.delimiter(),
+                repeat_sections(ident, range.clone(), group.stream()),
+            )),
+            [tt, ..] => tt.clone(),
+            _ => unreachable!(),
+        };
+        replaced_tokens.push(replaced_token);
+        i += 1;
+    }
+
+    TokenStream::from_iter(replaced_tokens)
 }
 
 fn replace_ident(ident: &Ident, value: usize, content: TokenStream) -> TokenStream {
