@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use proc_macro::{Delimiter, Group, Literal, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Literal, TokenStream, TokenTree};
 use syn::{braced, parse::Parse, parse_macro_input, Ident, LitInt, Token};
 
 #[derive(Debug)]
@@ -41,7 +41,7 @@ impl Parse for Seq {
 }
 
 #[proc_macro]
-pub fn seq(input: TokenStream) -> TokenStream {
+pub fn seq(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as Seq);
     eprintln!("{input:#?}");
 
@@ -58,19 +58,12 @@ pub fn seq(input: TokenStream) -> TokenStream {
 
     // eprintln!("{from} {to}");
 
-    if has_repetition_delimiter(input.content.clone().into()) {
-        output.extend(repeat_sections(
-            &input.counter_ident,
-            range,
-            input.content.into(),
-        ))
+    if has_repetition_delimiter(input.content.clone()) {
+        output.extend(repeat_sections(&input.counter_ident, range, input.content))
     } else {
         for i in range {
-            let current_stream = replace_ident(
-                &input.counter_ident.clone(),
-                i,
-                input.content.clone().into(),
-            );
+            let current_stream =
+                replace_ident(&input.counter_ident.clone(), i, input.content.clone());
             // eprintln!("{i} {current_stream:#?}");
             output.extend(current_stream);
         }
@@ -78,7 +71,7 @@ pub fn seq(input: TokenStream) -> TokenStream {
 
     // eprintln!("Output: {output:#?}");
     eprintln!("Output: {}", output);
-    output
+    output.into()
 }
 
 fn has_repetition_delimiter(stream: TokenStream) -> bool {
@@ -148,15 +141,12 @@ fn replace_ident(ident: &Ident, value: usize, content: TokenStream) -> TokenStre
     while i < content_tokens.len() {
         let replaced_token = match &content_tokens[i..] {
             [TokenTree::Ident(first), TokenTree::Punct(delim), TokenTree::Ident(current_ident), ..]
-                if delim.as_char() == '~' && *ident == current_ident.to_string() =>
+                if delim.as_char() == '~' && ident == current_ident =>
             {
                 i += 2;
-                TokenTree::Ident(proc_macro::Ident::new(
-                    &format!("{}{}", first, value),
-                    Span::call_site(),
-                ))
+                TokenTree::Ident(Ident::new(&format!("{}{}", first, value), first.span()))
             }
-            [TokenTree::Ident(current_ident), ..] if *ident == current_ident.to_string() => {
+            [TokenTree::Ident(current_ident), ..] if ident == current_ident => {
                 TokenTree::Literal(Literal::usize_unsuffixed(value))
             }
             [TokenTree::Group(group), ..] => TokenTree::Group(Group::new(
