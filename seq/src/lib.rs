@@ -1,29 +1,31 @@
-use proc_macro::{Group, Literal, Span, TokenStream, TokenTree};
-use syn::{braced, parse::Parse, parse_macro_input, token, Ident, LitInt, Token};
+use proc_macro::{Delimiter, Group, Literal, Span, TokenStream, TokenTree};
+use syn::{braced, parse::Parse, parse_macro_input, Ident, LitInt, Token};
 
-#[allow(unused)]
 #[derive(Debug)]
 struct Seq {
     counter_ident: Ident,
-    in_token: Token![in],
     lit_from: LitInt,
-    range_token: Token![..],
     lit_to: LitInt,
-    brace_token: token::Brace,
     content: proc_macro2::TokenStream,
 }
 
 impl Parse for Seq {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let counter_ident = input.parse()?;
+        input.parse::<Token![in]>()?;
+        let lit_from = input.parse()?;
+        input.parse::<Token![..]>()?;
+        let lit_to = input.parse()?;
+
         let content;
+        braced!(content in input);
+        let content = content.parse()?;
+
         Ok(Self {
-            counter_ident: input.parse()?,
-            in_token: input.parse()?,
-            lit_from: input.parse()?,
-            range_token: input.parse()?,
-            lit_to: input.parse()?,
-            brace_token: braced!(content in input),
-            content: content.parse()?,
+            counter_ident,
+            lit_from,
+            lit_to,
+            content,
         })
     }
 }
@@ -38,20 +40,46 @@ pub fn seq(input: TokenStream) -> TokenStream {
     let from = input.lit_from.base10_parse::<usize>().unwrap();
     let to = input.lit_to.base10_parse::<usize>().unwrap();
 
-    eprintln!("{from} {to}");
+    // eprintln!("{from} {to}");
 
-    for i in from..to {
-        let current_stream = replace_ident(
-            &input.counter_ident.clone(),
-            i,
-            input.content.clone().into(),
-        );
-        eprintln!("{i} {current_stream:#?}");
-        output.extend(current_stream);
+    if has_repetition_delimiter(input.content.clone().into()) {
+    } else {
+        for i in from..to {
+            let current_stream = replace_ident(
+                &input.counter_ident.clone(),
+                i,
+                input.content.clone().into(),
+            );
+            // eprintln!("{i} {current_stream:#?}");
+            output.extend(current_stream);
+        }
     }
 
-    eprintln!("Output: {output:#?}");
+    // eprintln!("Output: {output:#?}");
     output
+}
+
+fn has_repetition_delimiter(stream: TokenStream) -> bool {
+    let tokens = Vec::from_iter(stream.into_iter());
+
+    for i in 0..tokens.len() {
+        match &tokens[i..] {
+            [TokenTree::Punct(pound), TokenTree::Group(group), TokenTree::Punct(asterisk)]
+                if pound.as_char() == '#'
+                    && asterisk.as_char() == '*'
+                    && group.delimiter() == Delimiter::Parenthesis =>
+            {
+                return true;
+            }
+            [TokenTree::Group(group), ..] => {
+                if has_repetition_delimiter(group.stream()) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 fn replace_ident(ident: &Ident, value: usize, content: TokenStream) -> TokenStream {
