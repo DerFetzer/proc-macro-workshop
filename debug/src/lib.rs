@@ -2,8 +2,9 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{quote, quote_spanned};
 use syn::{
-    parse_macro_input, spanned::Spanned, Data, DeriveInput, Expr, ExprLit, Fields, Lit, LitStr,
-    Meta, MetaNameValue,
+    parse_macro_input, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Where, Data,
+    DeriveInput, Expr, ExprLit, Fields, GenericParam, Lit, LitStr, Meta, MetaNameValue,
+    WhereClause, WherePredicate,
 };
 
 #[proc_macro_derive(CustomDebug, attributes(debug))]
@@ -12,6 +13,22 @@ pub fn derive(input: TokenStream) -> TokenStream {
     eprintln!("{input:#?}");
 
     let ident = input.ident;
+
+    let (impl_generics, ty_generics, _where_clause) = input.generics.split_for_impl();
+    let where_iter = input.generics.params.iter().filter_map(|p| {
+        if let GenericParam::Type(tp) = p {
+            let param_ident = &tp.ident;
+            Some::<WherePredicate>(parse_quote! {
+                #param_ident: ::std::fmt::Debug
+            })
+        } else {
+            None
+        }
+    });
+    let debug_where_clause = WhereClause {
+        where_token: Where::default(),
+        predicates: Punctuated::from_iter(where_iter),
+    };
 
     let struct_fields = if let Data::Struct(ds) = input.data {
         if let Fields::Named(fields) = ds.fields {
@@ -76,7 +93,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let struct_end = " }";
 
     let output = quote! {
-        impl ::std::fmt::Debug for #ident {
+        impl #impl_generics ::std::fmt::Debug for #ident #ty_generics #debug_where_clause {
             fn fmt(&self, fmt: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 fmt.write_str(#struct_start)?;
                 #(#field_setters)*
