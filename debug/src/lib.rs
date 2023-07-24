@@ -23,7 +23,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let field_setters = struct_fields.iter().map(|f| {
         let name = &f.ident;
-        let name_str = LitStr::new(&ident.to_string(), Span::call_site());
+        let name_str = LitStr::new(
+            &name.as_ref().map(|n| n.to_string()).unwrap_or_default(),
+            Span::call_site(),
+        );
         quote_spanned! {f.span() =>
             .field(#name_str, &self.#name)
         }
